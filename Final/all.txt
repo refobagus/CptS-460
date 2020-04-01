@@ -1,0 +1,720 @@
+////////////////////////////////////////////////////////cat.c
+
+#include "ucode.c"
+
+main(int argc, char *argv[])
+{
+  int in, out, outtty, i = 0, n;
+  char buf[1024], tty[32], c;
+  char string[128];
+
+  gettty(tty);
+
+  // open tty for write
+  outtty = open(tty, O_WRONLY);
+
+  if (argc == 1)
+  {
+    // for stdin
+    in = 0;
+    out = 1;
+  }
+
+  else
+  {
+    // open file
+    in = open(argv[1], O_RDONLY);
+    if (in < 0)
+    {
+      prints("Cannot open up file for cat\n\r");
+      return -1;
+    }
+    out = 1;
+  }
+
+  while(1)
+  {
+    // reads one byte at a time from the file
+    n = read(in, buf, 1);
+    if (n < 1)
+    {
+      return 0;
+    }
+
+    // STDIN
+    if (in == 0)
+    {
+      line[i] = buf[0];
+      if (buf[0] != 13)
+      {
+        // write out
+        write(out, buf, 1);
+        i++;
+      }
+      else
+      {
+        // check if enter pressed, then write out the output
+        write(out, "\n\r", 2);
+        write(outtty, line, i);
+        write(outtty, "\n\r", 2);
+        memset(line, 0, 128);
+        i = 0;
+      }
+    }
+    else
+    {
+      // writes byte by byte out to stdinout
+      write(out, buf, 1);
+      // handles the newline character
+      if (buf[0] == '\n')
+      {
+        write(outtty, "\r", 1);
+      }
+    }
+  }
+
+  close(in); close(outtty);
+}
+
+
+////////////////////////////////////////////////////////cp.c
+#include "ucode.c"
+
+char buf[1024];
+
+int main(int argc, char * argv[])
+{
+	if(argc < 3)
+	{
+		printf("Usage: cp src dest\n");
+		return 0;
+	}
+	//open files
+	close(0);
+	open(argv[1], O_RDONLY);
+	close(1);
+	//if file not found, create
+	open(argv[2], O_WRONLY|O_CREAT);
+
+	//only overwrites or create new
+	while(read(0, buf, 1024))
+	{
+		buf[strlen(buf) - 1] = 0;
+		prints(buf);
+	}
+
+	return 0;
+}
+
+////////////////////////////////////////////////////////grep.c
+#include "ucode.c"
+
+int checkSub(char * sub, char * line)
+{
+	//run loop until line empty
+	while(*line != '\0'){
+		//if found something similar
+		if(*line == *sub){
+			//check if whole substring is the same and return 1, check next until return 0
+			for(char * sub2 = sub; *line != '\0'; sub2++, line++){
+				if(*sub2 == '\0'){
+					return 1;
+				}
+				else if(*sub2 != *line){
+					break;
+				}
+			}
+		}
+		line++;
+	}
+	return 0;
+}
+
+int main(int argc, char * argv[])
+{
+	char buf[1024];
+	
+	if(argc > 2)
+	{
+		close(0);
+		//if input correct, open file for read
+		open(argv[2], O_RDONLY);
+	}
+
+	if(argc < 2)
+	{
+		prints("Usage: grep pattern [file]\n");
+		return 0;
+	}
+	
+	//get each line and run it through check sub
+	while(getline(buf)){
+		if(checkSub(argv[1], buf) == 1){
+			//if found, print whole line
+			prints(buf);
+		}
+	}
+	return 0;
+}
+
+////////////////////////////////////////////////////////init.c
+#include "ucode.c"
+
+int console, s0, s1;
+
+int parent()
+{
+  int pid, status;
+  while(1)
+  {
+    printf("INIT: wait for ZOMBIE child\n");
+    pid = wait(&status);
+    // if console login process died
+    if(pid == console)
+    {
+      printf("INIT: forks a new console login\n");
+      // fork another one
+      console = fork();
+      if(console)
+        continue;
+      else
+        // new console login process
+        exec("login /dev/tty0");;
+    }
+
+    if(pid == s0)
+    {
+      printf("INIT: forks a new login on serial0");
+      // fork another one
+      s0 = fork();
+      if(s0)
+        continue;
+      else
+        // new serial0 login process
+        exec("login /dev/ttyS0");
+    }
+
+    if (pid == s1)
+    {
+      printf("INIT: forks a new login on serial1");
+      // fork another one
+      s1 = fork();
+      if(s1)
+        continue;
+      else
+        // new serial1 loging process
+        exec("login /dev/ttyS1");
+    }
+
+    printf("INIT: I just buried an orphan child proc %d\n", pid);
+  }
+}
+
+main()
+{
+  // file descriptors for terminal I/O
+  int in, out;
+
+  // file descriptor 0
+  in = open("/dev/tty0", O_RDONLY);
+  // for display to console
+  out = open("/dev/tty0", O_WRONLY);
+
+  console = fork();
+
+  // parent fork
+  if (console)
+  {
+    s0 = fork();
+    // parent
+    if (s0)
+    {
+      s1 = fork();
+      // parent
+      if (s1)
+      {
+        parent();
+      }
+      else
+      {
+        // child: exec to login on ttyS0
+        exec("login /dev/ttyS1");
+      }
+    }
+    else
+    {
+      // child: exec to login on ttyS1
+      exec("login /dev/ttyS0");
+    }
+  }
+  else
+  {
+    // child: exec to login on tty0
+    exec("login /dev/tty0");;
+  }
+}
+
+/////////////////////////////////////////////////////////////////////////////l2u.c
+#include "ucode.c"
+
+char buf[1024];
+
+void upper(char * c)
+{
+	int len = strlen(c);
+	for(int i = 0; i < len; i++)
+		//if lowercase, change to upper, else leave it be
+		c[i] = (c[i] >= 'a' && c[i] <= 'z') ? c[i] + 'A' - 'a' : c[i];
+}
+
+int main(int argc, char * argv[])
+{
+	if(argc == 3)
+	{
+		//open file and create new to swap as uppercase
+		close(0);
+		open(argv[1], O_RDONLY);
+		close(1);
+		open(argv[2], O_WRONLY|O_CREAT);
+	}
+
+	while(getline(buf))
+	{
+		//change upper per line
+		upper(buf);
+		prints(buf);
+	}
+		
+}
+
+////////////////////////////////////////////////////////login.c
+#include "ucode.c"
+
+char buf[1024];
+
+int getLineData(char *line, char *names[ ], char token)
+{
+  int i, n; char *cp;
+
+  n = 0;
+
+  //clean array
+  for (i=0; i<16; i++)
+      names[i]=0;
+
+  cp = line;
+  while (*cp != 0){
+      
+      //check for blanks and skips
+      while (*cp == ' '){
+        *cp++ = 0;
+      }
+
+      //get username
+      if (*cp != 0){
+        names[n++] = cp;
+      }
+      // get token
+      while (*cp != token && *cp != 0){ 
+	      cp++;
+      }
+
+      if (*cp != 0){
+	      *cp = 0;
+      }
+      else{
+        break;
+      }
+       cp++;
+  }
+
+  return n;
+}
+
+main(int argc, char *argv[])
+{
+  int i = 0;
+  int in, out, err;
+  int fd, n, size;
+  char *data[100], *lines[100];
+  char name[128], password[128];
+
+  // close fd 0,1 from init
+  close(0);
+  close(1);
+  close(2);
+
+  // open dev/ttys0 as in out and err
+  in =  open(argv[1], 0);
+  out = open(argv[1], 1);
+  err = open(argv[1], 2);
+
+  // store tty string in proc tty
+  settty(argv[1]);
+
+  fd = open("/etc/passwd", O_RDONLY);
+
+  while(1)
+  {
+    printf("login:");
+    gets(name);
+
+    printf("password:");
+    gets(password);
+
+    n = read(fd, buf, 1024);
+    if (n <= 0)
+    {
+      printf("There are no passwords found\n");
+    }
+
+    //get each lines of data by tokenizing \n
+    size = getLineData(buf, lines, '\n');
+
+    for (i = 0; i < size; i++)
+    {
+      //get all info of 1 line
+      //username:password:uid:gid:mode:directory:execmd
+      getLineData(lines[i], data, ':');
+
+      //check if valid user
+      if (strcmp(name, data[0]) == 0 && strcmp(password, data[1]) == 0)
+      {
+        //change multiple stuff, uid gid, cd into user directory
+        chuid(atoi(data[2]), atoi(data[3]));
+        chdir(data[5]);
+
+        close(fd);
+        printf("Logged in as %s\n", data[0]);
+
+        //exec sh
+        exec(data[6]);
+        return 1;
+      }
+    }
+    prints("login failed, reset to login again.\n");
+  }
+}
+
+////////////////////////////////////////////////////////ls.c
+#include "ucode.c"
+
+// basically the same as 360
+#define S_ISDIR(m) ((m >> 9) == 040)
+#define S_ISREG(m) ((m >> 12) == 010)
+#define S_ISLNK(m) ((m >> 12) == 012)
+
+char buffer[1024];
+char cwd[256];
+char temp[256];
+
+//reading file
+void ls_file(char * filename)
+{
+	const char * t1 = "xwrxwrxwr-------";
+	const char * t2 = "----------------";
+	STAT s;
+	stat(filename, &s);
+	//if reg
+	if(S_ISREG(s.st_mode)){
+		mputc('-');
+	}
+	//if dir
+	else if(S_ISDIR(s.st_mode)){
+		mputc('d');
+	}
+	
+	else{
+		mputc('l');
+	}
+
+	for(int i = 8; i >= 0; i--){
+		mputc((s.st_mode & (1 << i)) ? t1[i] : t2[i]);
+	}
+	printf(" %d %d %d %d ", s.st_nlink, s.st_gid, s.st_uid, s.st_size);
+	prints(filename);
+	if(S_ISLNK(s.st_mode))
+	{
+		prints(" -> ");
+		char link[256];
+		readlink(filename, link);
+		prints(link);
+	}
+	prints("\n");
+}
+
+//reading directory
+void ls_dir(char * filename)
+{
+	int dir = open(filename, O_RDONLY);
+	read(dir, buffer, 1024);
+	char * cp = buffer;
+	DIR * dp = (DIR*) buffer;
+	while(cp < 1024 + buffer)
+	{
+		mystrncpy(temp, dp->name, dp->name_len);
+		temp[dp->name_len] = '\0';
+		ls_file(temp);
+		cp += dp->rec_len;
+		dp = (DIR*)cp;	
+	}
+}
+
+int main(int argc, char * argv[])
+{
+	getcwd(cwd);
+
+	if(argc < 2)
+	{
+		ls_dir(cwd);
+	}
+
+	else
+	{
+		STAT s;
+		stat(argv[1], &s);
+		if(S_ISDIR(s.st_mode))
+			ls_dir(argv[1]);
+		else
+			ls_file(argv[1]);
+	}
+
+	return 0;
+}	
+
+
+////////////////////////////////////////////////////////more.c
+#include "ucode.c"
+
+char buf[1024];
+
+main(int argc, char *argv[])
+{
+  int in, out, outtty, intty, n, line = 0;
+  char tty[32], c;
+
+  char *warning = "Unable to open the file\n";
+  // curr tty
+  gettty(tty);
+
+  // open for r/w
+  intty = open(tty, O_RDONLY);
+  outtty = open(tty, O_WRONLY);
+
+  if (argc == 1)
+  {
+    // STDIN
+    in = 0;
+    out = 1;
+  }
+  else
+  {
+    // file
+    in = open(argv[1], O_RDONLY);
+    if (in < 0)
+    {
+      write(outtty, warning, strlen(warning));
+      return -1;
+    }
+    out = 1;
+  }
+
+
+  // read byte to byte
+  while(1)
+  {
+    // read 1
+    n = read(in, buf, 1);
+
+    // keep checking until empty
+    if (n < 1)
+    {
+      return 0;
+    }
+
+    // write 1 byte at a time
+    write(outtty, buf, 1);
+
+    // get enter
+    if (buf[0] == '\n')
+    {
+      //go to next line
+      write(outtty, "\r", 1);
+
+      if (line < 25)
+      {
+        line++;
+      }
+      else
+      {
+        //check user input
+        read(intty, &c, 1);
+
+        //if get enter
+        if(c == '\r')
+        {
+          line--;
+        }
+        //if get space
+        else if(c == ' ')
+        {
+          line = 0;
+        }
+      }
+    }
+  }
+  close(in); close(outtty); close(intty);
+}
+
+////////////////////////////////////////////////////////sh.c
+#include "ucode.c"
+
+//skip space
+char * spaceDel(char * s)
+{
+	while(*s == ' ')
+		s++;
+	return s;
+}
+
+void redirection(char * command)
+{
+	int len = strlen(command);
+	int i=0;
+	while(i<len)
+	{
+		//check if outfile or append
+		if(command[i] == '>')
+		{
+			//if append true
+			if(i < len - 1 && command[i + 1] == '>')
+			{
+				command[i] = command[i + 1] = '\0';
+				char * filename = command + i + 2;
+				filename = spaceDel(filename);
+				close(1);
+				open(strtok(filename, ' '), O_WRONLY|O_APPEND);
+			}
+			//outfile
+			else
+			{
+				command[i] = '\0';
+				char * filename = command + i + 1;
+				filename = spaceDel(filename);
+				close(1);
+				open(strtok(filename, ' '), O_WRONLY|O_CREAT);
+			}
+		}
+		//do infile
+		else if(command[i] == '<')
+		{
+			command[i] = '\0';
+			char * filename = command + i + 1;
+			filename = spaceDel(filename);
+			close(0);
+			open(strtok(filename, ' '), O_RDONLY);
+		}
+		i++;
+	}
+
+}
+
+void commandHelper(char ** commands)
+{
+	char * head = *commands;
+	redirection(head);
+	char ** tail = commands + 1;
+	if(*tail == NULL)
+	{
+		exec(head);
+		exit(0);
+	}
+	else
+	{
+		int pid, dud[2];
+		pipe(dud);
+		pid = fork();
+		if (!pid)
+		{
+			close(dud[0]);
+			dup2(dud[0], 1);
+			exec(head);
+		
+			
+		}
+		else
+		{
+			close(dud[1]);
+			dup2(dud[1], 0);
+			commandHelper(tail);
+		}
+	}
+}
+
+void doCommands(char ** commands)
+{
+	char copy[100];
+	strcpy(copy, *commands);
+	char * tok = strtok(copy, ' ');
+	// do cd
+	if(strcmp(tok, "cd") == 0)
+	{
+		tok = strtok(NULL, ' ');
+		chdir(tok);
+		return;
+	}
+
+	int pid = fork();
+	if(pid)
+	{
+		int status;
+		while(1)
+		{
+			//if child
+			int child = wait(&status);
+			if(child == pid) return;
+		}
+	}
+	else
+	{
+		commandHelper(commands);
+	}
+}
+
+
+int main(int argc, char argv[])
+{
+	char input[1000];
+	char *command[50];
+
+	while(1)
+	{
+		printf("Enter command: ");
+		gets(input);
+
+		//if no input run it again
+		if(strlen(input) == 0){
+			continue;
+		}
+
+		// grab first command by searching if the have a pipe. if multiple pipes, go through the loop to grab all commands.
+		command[0] = strtok(input, '|');
+		for(int i = 1; command[i] = strtok(NULL, '|'); i++);
+
+		//create copy to be safe
+		char copy[100];
+		strcpy(copy, command[0]);
+		//if first command is logout, then quit.
+		if(strcmp(copy, "logout") == 0){
+			exit(0);
+		}
+
+		//loop to check if there is a space and deletes
+		for(int i = 1; command[i] != NULL; i++)
+			command[i] = spaceDel(command[i]);
+
+		//run grabbed commands
+		doCommands(command);
+	}
+
+}

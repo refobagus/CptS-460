@@ -1,0 +1,10 @@
+sudo cat cat.c > all.txt
+sudo cat cp.c >> all.txt
+sudo cat grep.c >> all.txt
+sudo cat init.c >> all.txt
+sudo cat l2u.c >> all.txt
+sudo cat login.c >> all.txt
+sudo cat ls.c >> all.txt
+sudo cat more.c >> all.txt
+sudo cat sh.c >> all.txt
+
